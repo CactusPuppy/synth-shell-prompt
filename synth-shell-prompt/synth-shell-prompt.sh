@@ -136,9 +136,33 @@ getGitBranch()
 			## there are more lines, then we know it is dirty.
 			## NOTE: this requires that you fetch your repository,
 			##       otherwise your information is outdated.
-			local is_dirty=false &&\
-				       [[ -n "$(git status --porcelain)" ]] &&\
-				       is_dirty=true
+			## More granular dirty status from @mathiasbynens' dotfiles
+			## https://github.com/mathiasbynens/dotfiles
+			# Early exit for Chromium & Blink repo, as the dirty check takes too long.
+			# Thanks, @paulirish!
+			# https://github.com/paulirish/dotfiles/blob/dd33151f/.bash_prompt#L110-L123
+			local dirtyStatus='';
+			repoUrl="$(git config --get remote.origin.url)";
+			if grep -q 'chromium/src.git' <<< "${repoUrl}"; then
+				dirtyStatus+='*';
+			else
+				# Check for uncommitted changes in the index.
+				if ! $(git diff --quiet --ignore-submodules --cached); then
+					dirtyStatus+='+';
+				fi;
+				# Check for unstaged changes.
+				if ! $(git diff-files --quiet --ignore-submodules --); then
+					dirtyStatus+='!';
+				fi;
+				# Check for untracked files.
+				if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+					dirtyStatus+='?';
+				fi;
+				# Check for stashed files.
+				if $(git rev-parse --verify refs/stash &>/dev/null); then
+					dirtyStatus+='$';
+				fi;
+			fi;
 			local is_ahead=false &&\
 				       [[ "$(git status --porcelain -u no -b)" == *"ahead"* ]] &&\
 				       is_ahead=true
@@ -148,15 +172,7 @@ getGitBranch()
 
 
 			## SELECT SYMBOL
-			if   $is_dirty && $is_ahead && $is_behind; then
-				local symbol=$SSP_GIT_DIRTY_DIVERGED
-			elif $is_dirty && $is_ahead; then
-				local symbol=$SSP_GIT_DIRTY_AHEAD
-			elif $is_dirty && $is_behind; then
-				local symbol=$SSP_GIT_DIRTY_BEHIND
-			elif $is_dirty; then
-				local symbol=$SSP_GIT_DIRTY
-			elif $is_ahead && $is_behind; then
+			if $is_ahead && $is_behind; then
 				local symbol=$SSP_GIT_DIVERGED
 			elif $is_ahead; then
 				local symbol=$SSP_GIT_AHEAD
@@ -168,7 +184,11 @@ getGitBranch()
 
 
 			## RETURN STRING
-			echo "$branch$symbol"
+			local finalString="$branch"
+			if ! [ -z $dirtyStatus ]; then
+				finalString+=" $dirtyStatus"
+			fi
+			echo "$finalString$symbol"
 		fi
 	fi
 
